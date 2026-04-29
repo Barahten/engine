@@ -47,6 +47,15 @@ export class AudioPlayer {
     void this.schedule()
   }
 
+  pause() {
+    const now = this.actx.currentTime
+    this.gainNode.gain.cancelScheduledValues(now)
+    this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now)
+    this.gainNode.gain.linearRampToValueAtTime(0, now + CLICK_FADE)
+    setTimeout(() => this.stopNodes(), (CLICK_FADE * 1000) + 5)
+    // iterator НЕ убиваем
+  }
+
   stop() {
     const now = this.actx.currentTime
     this.gainNode.gain.cancelScheduledValues(now)

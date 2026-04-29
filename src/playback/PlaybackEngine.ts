@@ -73,8 +73,11 @@ export class PlaybackEngine {
         if (active && lc.is('ready')) {
           lc.transition('playing')
           const mediaTime = this.clipMediaTime(clip, t)
-          const clipDuration = clip.duration ?? 0
-          void player.play(mediaTime, clip.audio, clipDuration)
+          void player.play(mediaTime, clip.audio, clip.duration ?? 0)
+        } else if (active && lc.is('paused')) {
+          lc.transition('playing')
+          const mediaTime = this.clipMediaTime(clip, t)
+          void player.play(mediaTime, clip.audio, clip.duration ?? 0)
         } else if (!active && lc.is('playing')) {
           lc.transition('ended')
           player.stop()
@@ -131,8 +134,16 @@ export class PlaybackEngine {
 
   pause() {
     this.clock.pause()
-    this.stopAllAudio()
-    this.clips.resetAll()
+    for (const layer of this.state.layers) {
+      for (const clip of layer.clips) {
+        if (clip.type !== 'video' && clip.type !== 'audio') continue
+        const lc = this.clips.get(clip.id)
+        if (lc?.is('playing')) {
+          lc.transition('paused')
+          this.sources.getAudioSync(clip.src)?.pause()
+        }
+      }
+    }
   }
 
   async seek(timeSeconds: number) {
