@@ -13,6 +13,8 @@ export class AudioPlayer {
   private ctxStartTime: number = 0
   private mediaStartTime: number = 0
   durationSeconds: number = 0
+  private static readonly LOOKAHEAD_MIN = 1
+  private static readonly LOOKAHEAD_MAX = 3
 
   constructor(url: string, actx: AudioContext) {
     this.url = url
@@ -36,16 +38,23 @@ export class AudioPlayer {
     this.mediaStartTime = timeSeconds
   }
 
-  async play(mediaTime: number, audio: AudioState, clipDuration: number) {
-    if (!this.sink) return
-    this.stopNodes()
-    void this.iterator?.return(undefined)
-    this.mediaStartTime = mediaTime
-    this.iterator = this.sink.buffers(mediaTime)
-    this.ctxStartTime = this.actx.currentTime - mediaTime
-    this.scheduleGain(audio, mediaTime, clipDuration)
-    void this.schedule()
-  }
+  private playGeneration = 0
+  private rangeStart: number = 0
+
+async play(mediaTime: number, audio: AudioState, clipDuration: number, rangeStart: number) {
+  if (!this.sink) return
+  const generation = ++this.playGeneration
+  this.stopNodes()
+  void this.iterator?.return(undefined)
+  this.iterator = null
+  this.mediaStartTime = mediaTime
+  this.rangeStart = rangeStart
+  this.iterator = this.sink.buffers(mediaTime)
+  this.ctxStartTime = this.actx.currentTime - mediaTime
+  this.scheduleGain(audio, mediaTime, clipDuration)
+  this.schedule(generation).catch(e => console.error('[AudioPlayer] schedule error:', e))
+}
+
 
   pause() {
     const now = this.actx.currentTime
@@ -53,7 +62,8 @@ export class AudioPlayer {
     this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now)
     this.gainNode.gain.linearRampToValueAtTime(0, now + CLICK_FADE)
     setTimeout(() => this.stopNodes(), (CLICK_FADE * 1000) + 5)
-    // iterator НЕ убиваем
+    void this.iterator?.return(undefined)
+    this.iterator = null
   }
 
   stop() {
@@ -83,7 +93,7 @@ export class AudioPlayer {
     const vol = audio.volume
     const fadeIn = audio.fade.in
     const fadeOut = audio.fade.out
-    const pos = mediaTime - this.mediaStartTime
+    const pos = mediaTime - this.rangeStart
     const remaining = clipDuration - pos
 
     if (fadeIn > 0 && pos < fadeIn) {
@@ -102,11 +112,13 @@ export class AudioPlayer {
     }
   }
 
-  private async schedule() {
+  private async schedule(generation: number) {
     if (!this.iterator) return
     const iter = this.iterator
     for await (const { buffer, timestamp } of iter) {
+      if (generation !== this.playGeneration) break
       if (iter !== this.iterator) break
+
       const node = this.actx.createBufferSource()
       node.buffer = buffer
       node.connect(this.gainNode)
@@ -118,12 +130,20 @@ export class AudioPlayer {
       node.onended = () => this.queuedNodes.delete(node)
 
       const ahead = timestamp - (this.actx.currentTime - this.ctxStartTime)
-      if (ahead >= 1) {
+
+      // backpressure — слишком далеко впереди, ждём
+      if (ahead > AudioPlayer.LOOKAHEAD_MAX) {
+        const waitMs = (ahead - AudioPlayer.LOOKAHEAD_MIN) * 1000
         await new Promise<void>(resolve => {
-          const id = setInterval(() => {
-            const a = timestamp - (this.actx.currentTime - this.ctxStartTime)
-            if (iter !== this.iterator || a < 1) { clearInterval(id); resolve() }
-          }, 100)
+          const id = setTimeout(() => {
+            if (generation !== this.playGeneration) resolve()
+            else resolve()
+          }, waitMs)
+          // на случай если generation сменился раньше — проверим через маленький интервал
+          const guard = setInterval(() => {
+            if (generation !== this.playGeneration) { clearTimeout(id); clearInterval(guard); resolve() }
+          }, 50)
+          setTimeout(() => clearInterval(guard), waitMs + 100)
         })
       }
     }
@@ -139,5 +159,7 @@ export class AudioPlayer {
   destroy() {
     this.stopNodes()
     void this.iterator?.return(undefined)
+    this.iterator = null
+    ++this.playGeneration  // ← отменяет любой висящий schedule loop
   }
 }

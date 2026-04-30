@@ -1,13 +1,13 @@
 export type AspectRatio = { w: number; h: number }
 
 export type NormalizedRect = {
-  x: number
-  y: number
+  x: number | null
+  y: number | null
   width: number
   height: number
 }
 
-export type CanvasRect = {
+export type ArtboardRect = {
   x: number
   y: number
   width: number
@@ -43,25 +43,29 @@ export class CoordSystem {
     this.offsetY = (canvasHeight - renderedH) / 2
   }
 
-  toCanvas(rect: NormalizedRect): CanvasRect {
+  toCanvas(rect: NormalizedRect): ArtboardRect {
+    const w = rect.width * this.scaleX
+    const h = rect.height * this.scaleY
+    const cx = rect.x ?? 0.5  // null → центр артборда
+    const cy = rect.y ?? 0.5
     return {
-      x: this.offsetX + rect.x * this.scaleX,
-      y: this.offsetY + rect.y * this.scaleY,
-      width: rect.width * this.scaleX,
-      height: rect.height * this.scaleY,
+      x: this.offsetX + cx * this.scaleX - w / 2,
+      y: this.offsetY + cy * this.scaleY - h / 2,
+      width: w,
+      height: h,
     }
   }
 
-  toNormalized(rect: CanvasRect): NormalizedRect {
+  toNormalized(rect: ArtboardRect): NormalizedRect {
     return {
-      x: (rect.x - this.offsetX) / this.scaleX,
-      y: (rect.y - this.offsetY) / this.scaleY,
+      x: (rect.x - this.offsetX + rect.width / 2) / this.scaleX,
+      y: (rect.y - this.offsetY + rect.height / 2) / this.scaleY,
       width: rect.width / this.scaleX,
       height: rect.height / this.scaleY,
     }
   }
 
-  get artboardRect(): CanvasRect {
+  get artboardRect(): ArtboardRect {
     return {
       x: this.offsetX,
       y: this.offsetY,

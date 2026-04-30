@@ -18,7 +18,7 @@ export class LayerCompositor {
     ctx.clearRect(0, 0, canvas.width, canvas.height)
   }
 
-  clearAll(width: number, height: number) {
+  clearAll() {
     for (const [id] of this.offscreens) {
       this.clear(id)
     }

@@ -1,6 +1,8 @@
 import type { CompositionState } from '../state/types'
 import type { SourceManager } from '../decoder/SourceManager'
 import type { Renderer } from '../renderer/Renderer'
+import { isClipActive } from '../clip/clipUtils'
+import { buildSchedule } from './ClipScheduler'
 
 export class ScrubEngine {
   private pending: number | null = null
@@ -25,14 +27,10 @@ export class ScrubEngine {
       const t = this.pending
       this.pending = null
 
-      for (const layer of state.layers) {
-        for (const clip of layer.clips) {
-          const rangeStart = clip.range?.start ?? 0
-          const mediaTime = rangeStart + (t - clip.offset)
-          const clamped = Math.max(rangeStart, mediaTime)
-          const video = this.sources.getVideoSync(clip.src)
-          if (video) await video.seek(clamped)
-        }
+      for (const { clip, mediaTime, active } of buildSchedule(state, t)) {
+        if (!active) continue
+        const video = this.sources.getVideoSync(clip.src, clip.id)
+        if (video) await video.seek(mediaTime)
       }
 
       this.renderer.render(state, t, this.sources)

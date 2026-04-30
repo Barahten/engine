@@ -17,5 +17,5 @@ export type {
 export { validateCompositionState, validateClip, validateTransform, validateAspectRatio } from './state/validators'
 export type { ValidationError } from './state/validators'
 
-export type { NormalizedRect, CanvasRect } from './artboard/CoordSystem'
+export type { NormalizedRect, ArtboardRect } from './artboard/Artboard'
 export type { ClipLifecycleState } from './clip/ClipLifecycle'

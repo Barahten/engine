@@ -7,14 +7,28 @@
     <div class="controls">
         <button id="btn-play">Play</button>
         <button id="btn-pause">Pause</button>
-      <button id="btn-169">16:9</button>
-      <button id="btn-916">9:16</button>
-      <button id="btn-solid">Синий</button>
-      <button id="btn-gradient">Градиент</button>
-      <button id="btn-mute">Mute</button>
-      <button id="btn-unmute">Unmute</button>
-      <button id="btn-seek">Seek</button>
-      <button id="btn-scrub">Scrub</button>
+        <button id="btn-169">16:9</button>
+        <button id="btn-916">9:16</button>
+        <button id="btn-solid">Синий</button>
+        <button id="btn-gradient">Градиент</button>
+        <button id="btn-mute">Mute</button>
+        <button id="btn-unmute">Unmute</button>
+        <button id="btn-seek">Seek</button>
+        <button id="btn-scrub">Scrub</button>
+        <button id="btn-flip-x">Flip X</button>
+        <button id="btn-flip-y">Flip Y</button>
+        <button id="btn-fit-contain">Fit Contain</button>
+        <button id="btn-fit-cover">Fit Cover</button>
+        <button id="btn-fit-fill">Fit Fill</button>
+    </div>
+    <div style="width:80%; margin-top:8px;">
+      <div id="progress-container" style="width:100%; height:6px; background:#333; cursor:pointer; border-radius:3px;">
+        <div id="progress-bar" style="height:100%; width:0%; background:red; border-radius:3px; pointer-events:none;"></div>
+      </div>
+      <div style="display:flex; justify-content:space-between;; font-size:12px; margin-top:4px; font-family:monospace;">
+        <span id="time-current">0:00</span>
+        <span id="time-total">0:00</span>
+      </div>
     </div>
     <script type="module" src="/src/playground.ts"></script>
   </body>

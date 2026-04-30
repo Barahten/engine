@@ -43,7 +43,10 @@ export class ClipLifecycle {
   }
 
   reset() {
+    if (this._state === 'idle') return
+    const from = this._state
     this._state = 'idle'
+    this.onTransition?.(from, 'idle')
   }
 
   is(state: ClipLifecycleState): boolean {

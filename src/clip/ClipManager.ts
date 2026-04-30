@@ -1,6 +1,7 @@
 import { ClipLifecycle } from './ClipLifecycle'
 import type { ClipLifecycleState } from './ClipLifecycle'
 import type { ClipState } from '../state/types'
+import { isClipActive } from './clipUtils'
 
 export class ClipManager {
   private clips = new Map<string, ClipLifecycle>()
@@ -23,28 +24,23 @@ export class ClipManager {
     return lc.transition(to)
   }
 
-isActive(clip: ClipState, timeSeconds: number): boolean {
-  const duration = clip.duration ?? 0
-  return timeSeconds >= clip.offset && timeSeconds < clip.offset + duration
-}
+  // syncWithTime(clips: ClipState[], timeSeconds: number) {
+  //   for (const clip of clips) {
+  //     const lc = this.getOrCreate(clip)
+  //     const active = isClipActive(clip, timeSeconds)
 
-  syncWithTime(clips: ClipState[], timeSeconds: number) {
-    for (const clip of clips) {
-      const lc = this.getOrCreate(clip)
-      const active = this.isActive(clip, timeSeconds)
-
-      if (active && lc.is('ready')) {
-        lc.transition('playing')
-      } else if (active && lc.is('ended')) {
-        lc.transition('idle')
-        lc.transition('loading')
-        lc.transition('ready')
-        lc.transition('playing')
-      } else if (!active && lc.is('playing')) {
-        lc.transition('ended')
-      }
-    }
-  }
+  //     if (active && lc.is('ready')) {
+  //       lc.transition('playing')
+  //     } else if (active && lc.is('ended')) {
+  //       lc.transition('idle')
+  //       lc.transition('loading')
+  //       lc.transition('ready')
+  //       lc.transition('playing')
+  //     } else if (!active && lc.is('playing')) {
+  //       lc.transition('ended')
+  //     }
+  //   }
+  // }
 
   resetAll() {
     for (const lc of this.clips.values()) {

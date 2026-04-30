@@ -1,13 +1,24 @@
 import type { CompositionState, ClipState, Background, LayerState } from '../state/types'
 import type { SourceManager } from '../decoder/SourceManager'
-import { Artboard } from '../artboard/Artboard'
+import { Artboard, ArtboardRect } from '../artboard/Artboard'
 import { LayerCompositor } from '../composition/LayerCompositor'
+import { isClipActive } from '../clip/clipUtils'
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D
   private artboard: Artboard
   private compositor: LayerCompositor
   private imageCache = new Map<string, HTMLImageElement>()
+
+
+
+  private loadImage(src: string) {
+    if (this.imageCache.has(src)) return
+    const el = new Image()
+    el.onload = () => this.imageCache.set(src, el)
+    el.onerror = () => console.warn(`[Renderer] Failed to load image: ${src}`)
+    el.src = src
+  }
 
   constructor(ctx: CanvasRenderingContext2D, artboard: Artboard) {
     this.ctx = ctx
@@ -50,7 +61,7 @@ export class Renderer {
     timeSeconds: number,
     sources: SourceManager,
     ctx: OffscreenCanvasRenderingContext2D,
-    ab: { x: number; y: number; width: number; height: number }
+    ab: ArtboardRect
   ) {
     for (const clip of layer.clips) {
       if (!this.isActive(clip, timeSeconds)) continue
@@ -59,8 +70,7 @@ export class Renderer {
   }
 
   private isActive(clip: ClipState, t: number): boolean {
-    const duration = clip.duration ?? 0
-    return t >= clip.offset && t < clip.offset + duration
+    return isClipActive(clip, t)
   }
 
   private drawBackground(bg: Background) {
@@ -83,14 +93,9 @@ export class Renderer {
       ctx.fillStyle = grad
       ctx.fillRect(ab.x, ab.y, ab.width, ab.height)
     } else if (bg.type === 'image') {
+      this.loadImage(bg.src)
       const img = this.imageCache.get(bg.src)
-      if (img) {
-        ctx.drawImage(img, ab.x, ab.y, ab.width, ab.height)
-      } else {
-        const el = new Image()
-        el.onload = () => this.imageCache.set(bg.src, el)
-        el.src = bg.src
-      }
+      if (img) ctx.drawImage(img, ab.x, ab.y, ab.width, ab.height)
     }
   }
 
@@ -99,13 +104,10 @@ export class Renderer {
     timeSeconds: number,
     sources: SourceManager,
     ctx: OffscreenCanvasRenderingContext2D,
-    ab: { x: number; y: number; width: number; height: number }
+    ab: ArtboardRect
   ) {
     const { transform } = clip
-    const pw = transform.width * ab.width
-    const ph = transform.height * ab.height
-    const px = ab.x + (transform.x === null ? (ab.width - pw) / 2 : transform.x * ab.width)
-    const py = ab.y + (transform.y === null ? (ab.height - ph) / 2 : transform.y * ab.height)
+    const { x: px, y: py, width: pw, height: ph } = this.artboard.toCanvas(transform)
 
     ctx.save()
     ctx.globalAlpha = transform.opacity
@@ -125,26 +127,57 @@ export class Renderer {
     ctx.restore()
   }
 
-  private drawVideo(
+private drawVideo(
     clip: ClipState,
     px: number, py: number, pw: number, ph: number,
     sources: SourceManager,
     ctx: OffscreenCanvasRenderingContext2D
   ) {
-    const source = sources.getVideoSync(clip.src)
+    const source = sources.getVideoSync(clip.src, clip.id)
     const canvas = source?.getCanvas()
     if (!canvas) {
       ctx.fillStyle = '#222'
       ctx.fillRect(px, py, pw, ph)
       return
     }
-    const scale = Math.min(pw / canvas.width, ph / canvas.height)
-    const dw = canvas.width * scale
-    const dh = canvas.height * scale
+
+    const { flipX, flipY, fit } = clip.transform
+
+    let dw: number, dh: number
+    if (fit === 'fill') {
+      dw = pw
+      dh = ph
+    } else if (fit === 'cover') {
+      const scale = Math.max(pw / canvas.width, ph / canvas.height)
+      dw = canvas.width * scale
+      dh = canvas.height * scale
+    } else {
+      const scale = Math.min(pw / canvas.width, ph / canvas.height)
+      dw = canvas.width * scale
+      dh = canvas.height * scale
+    }
+
     const ox = px + (pw - dw) / 2
     const oy = py + (ph - dh) / 2
+
+    ctx.save()
+
+    if (fit === 'cover') {
+      ctx.beginPath()
+      ctx.rect(px, py, pw, ph)
+      ctx.clip()
+    }
+
     this.applyRoundRect(ox, oy, dw, dh, clip.transform.borderRadius, ctx)
+
+    if (flipX || flipY) {
+      ctx.translate(px + pw / 2, py + ph / 2)
+      ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1)
+      ctx.translate(-(px + pw / 2), -(py + ph / 2))
+    }
+
     ctx.drawImage(canvas, ox, oy, dw, dh)
+    ctx.restore()
   }
 
   private drawImage(
@@ -152,13 +185,9 @@ export class Renderer {
     px: number, py: number, pw: number, ph: number,
     ctx: OffscreenCanvasRenderingContext2D
   ) {
+    this.loadImage(clip.src)
     const img = this.imageCache.get(clip.src)
-    if (!img) {
-      const el = new Image()
-      el.onload = () => this.imageCache.set(clip.src, el)
-      el.src = clip.src
-      return
-    }
+    if (!img) return
     const scale = Math.min(pw / img.width, ph / img.height)
     const dw = img.width * scale
     const dh = img.height * scale
@@ -174,7 +203,9 @@ export class Renderer {
     ctx: OffscreenCanvasRenderingContext2D
   ) {
     ctx.fillStyle = '#fff'
-    ctx.fillText(clip.src, px, py + ph / 2)
+    ctx.font = '16px sans-serif'
+    ctx.fillStyle = '#fff'
+    ctx.fillText(clip.content ?? '', px, py, pw)  // pw как maxWidth обрезает за границей
   }
 
   private applyRoundRect(
@@ -196,5 +227,9 @@ export class Renderer {
     ctx.arcTo(x, y, x + tl, y, tl)
     ctx.closePath()
     ctx.clip()
+  }
+
+  clearImageCache() {
+    this.imageCache.clear()
   }
 }

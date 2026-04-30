@@ -11,28 +11,30 @@ export class SourceManager {
     this.actx = actx
   }
 
-  async getVideo(url: string): Promise<VideoSource> {
-    if (this.videoSources.has(url)) return this.videoSources.get(url)!
+  async getVideo(url: string, clipId: string): Promise<VideoSource> {
+    const key = `${url}::${clipId}`
+    if (this.videoSources.has(key)) return this.videoSources.get(key)!
     const source = new VideoSource(url)
     await source.init()
-    this.videoSources.set(url, source)
+    this.videoSources.set(key, source)
     return source
   }
 
-  getVideoSync(url: string): VideoSource | null {
-    return this.videoSources.get(url) ?? null
+  getVideoSync(url: string, clipId: string): VideoSource | null {
+    return this.videoSources.get(`${url}::${clipId}`) ?? null
   }
 
-  async getAudio(url: string): Promise<AudioPlayer> {
-    if (this.audioPlayers.has(url)) return this.audioPlayers.get(url)!
+  async getAudio(url: string, clipId: string): Promise<AudioPlayer> {
+    const key = `${url}::${clipId}`
+    if (this.audioPlayers.has(key)) return this.audioPlayers.get(key)!
     const player = new AudioPlayer(url, this.actx)
     await player.init()
-    this.audioPlayers.set(url, player)
+    this.audioPlayers.set(key, player)
     return player
   }
 
-  getAudioSync(url: string): AudioPlayer | null {
-    return this.audioPlayers.get(url) ?? null
+  getAudioSync(url: string, clipId: string): AudioPlayer | null {
+    return this.audioPlayers.get(`${url}::${clipId}`) ?? null
   }
 
   getCompositionDuration(state: CompositionState): number {
@@ -46,42 +48,46 @@ export class SourceManager {
     return max
   }
 
-  async preloadClip(clip: ClipState): Promise<void> {
+  async preloadClip(clip: ClipState): Promise<ClipState> {
     const rangeStart = clip.range?.start ?? 0
+    let duration = clip.duration
+    let range = clip.range
 
     if (clip.type === 'video') {
-      const video = await this.getVideo(clip.src)
-      if (!clip.duration) {
-        (clip as any).duration = video.durationSeconds
-      }
-      if (!clip.range) {
-        (clip as any).range = { start: 0, end: video.durationSeconds }
-      }
+      const video = await this.getVideo(clip.src, clip.id)
+      if (!duration) duration = video.durationSeconds
+      if (!range) range = { start: 0, end: video.durationSeconds }
       await video.seek(rangeStart)
     }
 
     if (clip.type === 'video' || clip.type === 'audio') {
-      const audio = await this.getAudio(clip.src)
-      if (!clip.duration) {
-        (clip as any).duration = audio.durationSeconds
-      }
+      const audio = await this.getAudio(clip.src, clip.id)
+      if (!duration) duration = audio.durationSeconds
       await audio.seek(rangeStart)
     }
+
+    return { ...clip, duration, range }  // ← возвращаем новый объект, не мутируем
   }
 
-  destroyVideo(url: string) {
-    this.videoSources.get(url)?.destroy()
-    this.videoSources.delete(url)
+  destroyVideo(url: string, clipId: string) {
+    const key = `${url}::${clipId}`
+    this.videoSources.get(key)?.destroy()
+    this.videoSources.delete(key)
   }
 
-  pruneStale(urls: Set<string>) {
-    for (const url of this.videoSources.keys()) {
-      if (!urls.has(url)) this.destroyVideo(url)
+  pruneStale(clipIds: Set<string>) {
+    for (const key of this.videoSources.keys()) {
+      const clipId = key.split('::')[1]
+      if (!clipIds.has(clipId)) {
+        this.videoSources.get(key)?.destroy()
+        this.videoSources.delete(key)
+      }
     }
-    for (const url of this.audioPlayers.keys()) {
-      if (!urls.has(url)) {
-        this.audioPlayers.get(url)?.destroy()
-        this.audioPlayers.delete(url)
+    for (const key of this.audioPlayers.keys()) {
+      const clipId = key.split('::')[1]
+      if (!clipIds.has(clipId)) {
+        this.audioPlayers.get(key)?.destroy()
+        this.audioPlayers.delete(key)
       }
     }
   }

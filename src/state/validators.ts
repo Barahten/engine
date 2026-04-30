@@ -1,4 +1,4 @@
-import type { CompositionState, ClipState, AspectRatio, Transform } from './types'
+import type { CompositionState, ClipState, AspectRatio, Transform, Fit, AudioState, ClipInput } from './types'
 
 export type ValidationError = { field: string; message: string }
 
@@ -29,6 +29,26 @@ export function validateTransform(t: Transform): ValidationError[] {
   if (t.borderRadius.some(r => r < 0 || r > 1)) {
     errors.push({ field: 'transform.borderRadius', message: 'borderRadius values must be 0..1' })
   }
+  const validFits: Fit[] = ['contain', 'cover', 'fill']
+  if (!validFits.includes(t.fit)) {
+    errors.push({ field: 'transform.fit', message: `fit must be contain/cover/fill, got ${t.fit}` })
+  }
+  return errors
+}
+
+export function validateAudio(a: AudioState): ValidationError[] {
+  const errors: ValidationError[] = []
+  const volume = a.volume ?? 1
+  if (volume < 0 || volume > 1) {
+    errors.push({ field: 'audio.volume', message: `volume must be 0..1, got ${volume}` })
+  }
+  const fade = a.fade ?? { in: 0, out: 0 }
+  if (fade.in < 0) {
+    errors.push({ field: 'audio.fade.in', message: `fade.in must be >= 0` })
+  }
+  if (fade.out < 0) {
+    errors.push({ field: 'audio.fade.out', message: `fade.out must be >= 0` })
+  }
   return errors
 }
 
@@ -37,7 +57,7 @@ export function validateClip(clip: ClipState): ValidationError[] {
   if (clip.offset < 0) {
     errors.push({ field: 'clip.offset', message: `offset must be >= 0, got ${clip.offset}` })
   }
-  if (clip.duration !== undefined && clip.duration <= 0) {
+  if (clip.duration <= 0) {
     errors.push({ field: 'clip.duration', message: `duration must be > 0, got ${clip.duration}` })
   }
   if (clip.range && clip.range.end <= clip.range.start) {
@@ -63,4 +83,29 @@ export function validateCompositionState(state: CompositionState): ValidationErr
     }
   }
   return errors
+}
+
+export function normalizeClip(clip: ClipInput): ClipState {
+  return {
+    ...clip,
+    offset: clip.offset ?? 0,
+    duration: clip.duration ?? 0,
+    transform: {
+      x: clip.transform?.x ?? null,
+      y: clip.transform?.y ?? null,
+      width: clip.transform?.width ?? 1,
+      height: clip.transform?.height ?? 1,
+      rotation: clip.transform?.rotation ?? 0,
+      opacity: clip.transform?.opacity ?? 1,
+      borderRadius: clip.transform?.borderRadius ?? [0, 0, 0, 0],
+      flipX: clip.transform?.flipX ?? false,
+      flipY: clip.transform?.flipY ?? false,
+      fit: clip.transform?.fit ?? 'contain',
+    },
+    audio: {
+      muted: clip.audio?.muted ?? false,
+      volume: clip.audio?.volume ?? 1,
+      fade: clip.audio?.fade ?? { in: 0, out: 0 },
+    },
+  }
 }

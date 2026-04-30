@@ -1,7 +1,7 @@
-import { CoordSystem, AspectRatio, NormalizedRect, CanvasRect } from './CoordSystem'
+import { CoordSystem, AspectRatio, NormalizedRect, ArtboardRect } from './CoordSystem'
 import type { Background } from '../state/types'
 
-export type { AspectRatio, NormalizedRect, CanvasRect }
+export type { AspectRatio, NormalizedRect, ArtboardRect }
 
 export class Artboard {
   private _aspectRatio: AspectRatio
@@ -26,11 +26,11 @@ export class Artboard {
     this._coords = new CoordSystem(this._aspectRatio, this.canvas.width, this.canvas.height)
   }
 
-  toCanvas(rect: NormalizedRect): CanvasRect {
+  toCanvas(rect: NormalizedRect): ArtboardRect {
     return this._coords.toCanvas(rect)
   }
 
-  toNormalized(rect: CanvasRect): NormalizedRect {
+  toNormalized(rect: ArtboardRect): NormalizedRect {
     return this._coords.toNormalized(rect)
   }
 
@@ -46,7 +46,7 @@ export class Artboard {
     return this._background
   }
 
-  get artboardRect(): CanvasRect {
+  get artboardRect(): ArtboardRect {
     return this._coords.artboardRect
   }
 }

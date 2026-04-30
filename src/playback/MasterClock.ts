@@ -19,7 +19,7 @@ export class MasterClock {
 
   get currentTime(): number {
     if (this._state === 'stopped') return this.startOffset
-    return this.startOffset + (this.actx.currentTime - this.startActxTime)
+    return Math.max(0, this.startOffset + (this.actx.currentTime - this.startActxTime))
   }
 
   async play(fromSeconds?: number) {
@@ -39,12 +39,13 @@ export class MasterClock {
   }
 
   seek(timeSeconds: number) {
+    const t = Math.max(0, timeSeconds)  // ← guard
     const wasPlaying = this._state === 'playing'
     if (wasPlaying) this.stopRaf()
-    this.startOffset = timeSeconds
+    this.startOffset = t
     this.startActxTime = this.actx.currentTime
     if (wasPlaying) this.startRaf()
-    this.onTick?.(timeSeconds)
+    this.onTick?.(t)
   }
 
   private startRaf() {
@@ -63,6 +64,8 @@ export class MasterClock {
 
   destroy() {
     this.stopRaf()
-    void this.actx.close()
+    if (this.actx.state !== 'closed') {
+      void this.actx.close()
+    }
   }
 }
