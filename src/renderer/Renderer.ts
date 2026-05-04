@@ -3,31 +3,26 @@ import type { SourceManager } from '../decoder/SourceManager'
 import { Artboard, ArtboardRect } from '../artboard/Artboard'
 import { LayerCompositor } from '../composition/LayerCompositor'
 import { isClipActive } from '../clip/clipUtils'
+import { AnimationModifier, DEFAULT_ANIMATION_DURATION, resolveAnimationIn, resolveAnimationOut } from '../animation/AnimationEngine'
+import { ClipRenderer } from './ClipRenderer'
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D
   private artboard: Artboard
   private compositor: LayerCompositor
   private imageCache = new Map<string, HTMLImageElement>()
-
-
-
-  private loadImage(src: string) {
-    if (this.imageCache.has(src)) return
-    const el = new Image()
-    el.onload = () => this.imageCache.set(src, el)
-    el.onerror = () => console.warn(`[Renderer] Failed to load image: ${src}`)
-    el.src = src
-  }
+  private clipRenderer: ClipRenderer
 
   constructor(ctx: CanvasRenderingContext2D, artboard: Artboard) {
     this.ctx = ctx
     this.artboard = artboard
     this.compositor = new LayerCompositor()
+    this.clipRenderer = new ClipRenderer(artboard, this.imageCache)
   }
 
   updateArtboard(artboard: Artboard) {
     this.artboard = artboard
+    this.clipRenderer.updateArtboard(artboard)
   }
 
   render(state: CompositionState, timeSeconds: number, sources: SourceManager) {
@@ -60,17 +55,80 @@ export class Renderer {
     layer: LayerState,
     timeSeconds: number,
     sources: SourceManager,
-    ctx: OffscreenCanvasRenderingContext2D,
+    ctx: CanvasRenderingContext2D,
     ab: ArtboardRect
   ) {
     for (const clip of layer.clips) {
-      if (!this.isActive(clip, timeSeconds)) continue
+      if (!isClipActive(clip, timeSeconds)) continue
       this.renderClip(clip, timeSeconds, sources, ctx, ab)
     }
   }
 
-  private isActive(clip: ClipState, t: number): boolean {
-    return isClipActive(clip, t)
+  private renderClip(
+    clip: ClipState,
+    timeSeconds: number,
+    sources: SourceManager,
+    ctx: CanvasRenderingContext2D,
+    ab: ArtboardRect
+  ) {
+    const { transform } = clip
+    const { x: px, y: py, width: pw, height: ph } = this.artboard.toCanvas(transform)
+
+    const mod = this.resolveAnimation(clip, timeSeconds)
+
+    ctx.save()
+    ctx.globalAlpha = transform.opacity * mod.opacity
+
+    const cx = px + pw / 2
+    const cy = py + ph / 2
+    ctx.translate(cx, cy)
+    if (mod.scaleX !== 1 || mod.scaleY !== 1) ctx.scale(mod.scaleX, mod.scaleY)
+    if (mod.rotation !== 0) ctx.rotate((mod.rotation * Math.PI) / 180)
+    if (mod.translateX !== 0 || mod.translateY !== 0) {
+      ctx.translate(mod.translateX * ab.width, mod.translateY * ab.height)
+    }
+    ctx.translate(-cx, -cy)
+
+    if (transform.rotation !== 0) {
+      ctx.translate(cx, cy)
+      ctx.rotate((transform.rotation * Math.PI) / 180)
+      ctx.translate(-cx, -cy)
+    }
+
+    if (mod.clipRect) {
+      ctx.beginPath()
+      ctx.rect(px + mod.clipRect.x * pw, py + mod.clipRect.y * ph, mod.clipRect.w * pw, mod.clipRect.h * ph)
+      ctx.clip()
+    }
+
+    this.clipRenderer.draw(clip, px, py, pw, ph, sources, ctx, timeSeconds)
+
+    ctx.restore()
+  }
+
+  private resolveAnimation(clip: ClipState, t: number): AnimationModifier {
+    const DEFAULT: AnimationModifier = { opacity: 1, scaleX: 1, scaleY: 1, translateX: 0, translateY: 0, rotation: 0 }
+    if (!clip.animation) return DEFAULT
+
+    const elapsed = t - clip.offset
+
+    // range может отсутствовать у image/text — считаем duration напрямую
+    const clipDuration = clip.range
+      ? (clip.range.end - clip.range.start) / (clip.playbackRate ?? 1)
+      : clip.duration
+
+    if (clip.animation.in) {
+      const dur = clip.animation.in.duration ?? DEFAULT_ANIMATION_DURATION
+      if (elapsed < dur) return resolveAnimationIn(clip.animation.in, elapsed / dur)
+    }
+
+    if (clip.animation.out) {
+      const dur = clip.animation.out.duration ?? DEFAULT_ANIMATION_DURATION
+      const outStart = clipDuration - dur
+      if (elapsed >= outStart) return resolveAnimationOut(clip.animation.out, (elapsed - outStart) / dur)
+    }
+
+    return DEFAULT
   }
 
   private drawBackground(bg: Background) {
@@ -93,140 +151,10 @@ export class Renderer {
       ctx.fillStyle = grad
       ctx.fillRect(ab.x, ab.y, ab.width, ab.height)
     } else if (bg.type === 'image') {
-      this.loadImage(bg.src)
+      this.clipRenderer.loadImage(bg.src)
       const img = this.imageCache.get(bg.src)
       if (img) ctx.drawImage(img, ab.x, ab.y, ab.width, ab.height)
     }
-  }
-
-  private renderClip(
-    clip: ClipState,
-    timeSeconds: number,
-    sources: SourceManager,
-    ctx: OffscreenCanvasRenderingContext2D,
-    ab: ArtboardRect
-  ) {
-    const { transform } = clip
-    const { x: px, y: py, width: pw, height: ph } = this.artboard.toCanvas(transform)
-
-    ctx.save()
-    ctx.globalAlpha = transform.opacity
-
-    if (transform.rotation !== 0) {
-      ctx.translate(px + pw / 2, py + ph / 2)
-      ctx.rotate((transform.rotation * Math.PI) / 180)
-      ctx.translate(-(px + pw / 2), -(py + ph / 2))
-    }
-
-    switch (clip.type) {
-      case 'video': this.drawVideo(clip, px, py, pw, ph, sources, ctx); break
-      case 'image': this.drawImage(clip, px, py, pw, ph, ctx); break
-      case 'text':  this.drawText(clip, px, py, pw, ph, ctx); break
-    }
-
-    ctx.restore()
-  }
-
-private drawVideo(
-    clip: ClipState,
-    px: number, py: number, pw: number, ph: number,
-    sources: SourceManager,
-    ctx: OffscreenCanvasRenderingContext2D
-  ) {
-    const source = sources.getVideoSync(clip.src, clip.id)
-    const canvas = source?.getCanvas()
-    if (!canvas) {
-      ctx.fillStyle = '#222'
-      ctx.fillRect(px, py, pw, ph)
-      return
-    }
-
-    const { flipX, flipY, fit } = clip.transform
-
-    let dw: number, dh: number
-    if (fit === 'fill') {
-      dw = pw
-      dh = ph
-    } else if (fit === 'cover') {
-      const scale = Math.max(pw / canvas.width, ph / canvas.height)
-      dw = canvas.width * scale
-      dh = canvas.height * scale
-    } else {
-      const scale = Math.min(pw / canvas.width, ph / canvas.height)
-      dw = canvas.width * scale
-      dh = canvas.height * scale
-    }
-
-    const ox = px + (pw - dw) / 2
-    const oy = py + (ph - dh) / 2
-
-    ctx.save()
-
-    if (fit === 'cover') {
-      ctx.beginPath()
-      ctx.rect(px, py, pw, ph)
-      ctx.clip()
-    }
-
-    this.applyRoundRect(ox, oy, dw, dh, clip.transform.borderRadius, ctx)
-
-    if (flipX || flipY) {
-      ctx.translate(px + pw / 2, py + ph / 2)
-      ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1)
-      ctx.translate(-(px + pw / 2), -(py + ph / 2))
-    }
-
-    ctx.drawImage(canvas, ox, oy, dw, dh)
-    ctx.restore()
-  }
-
-  private drawImage(
-    clip: ClipState,
-    px: number, py: number, pw: number, ph: number,
-    ctx: OffscreenCanvasRenderingContext2D
-  ) {
-    this.loadImage(clip.src)
-    const img = this.imageCache.get(clip.src)
-    if (!img) return
-    const scale = Math.min(pw / img.width, ph / img.height)
-    const dw = img.width * scale
-    const dh = img.height * scale
-    const ox = px + (pw - dw) / 2
-    const oy = py + (ph - dh) / 2
-    this.applyRoundRect(ox, oy, dw, dh, clip.transform.borderRadius, ctx)
-    ctx.drawImage(img, ox, oy, dw, dh)
-  }
-
-  private drawText(
-    clip: ClipState,
-    px: number, py: number, pw: number, ph: number,
-    ctx: OffscreenCanvasRenderingContext2D
-  ) {
-    ctx.fillStyle = '#fff'
-    ctx.font = '16px sans-serif'
-    ctx.fillStyle = '#fff'
-    ctx.fillText(clip.content ?? '', px, py, pw)  // pw как maxWidth обрезает за границей
-  }
-
-  private applyRoundRect(
-    x: number, y: number, w: number, h: number,
-    radii: [number, number, number, number],
-    ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D
-  ) {
-    if (radii.every(r => r === 0)) return
-    const [tl, tr, br, bl] = radii.map(r => r * Math.min(w, h))
-    ctx.beginPath()
-    ctx.moveTo(x + tl, y)
-    ctx.lineTo(x + w - tr, y)
-    ctx.arcTo(x + w, y, x + w, y + tr, tr)
-    ctx.lineTo(x + w, y + h - br)
-    ctx.arcTo(x + w, y + h, x + w - br, y + h, br)
-    ctx.lineTo(x + bl, y + h)
-    ctx.arcTo(x, y + h, x, y + h - bl, bl)
-    ctx.lineTo(x, y + tl)
-    ctx.arcTo(x, y, x + tl, y, tl)
-    ctx.closePath()
-    ctx.clip()
   }
 
   clearImageCache() {

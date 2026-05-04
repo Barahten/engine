@@ -12,10 +12,10 @@ export class AudioPlayer {
   private gainNode: GainNode
   private ctxStartTime: number = 0
   private mediaStartTime: number = 0
+  private playbackRate: number = 1
   durationSeconds: number = 0
   private static readonly LOOKAHEAD_MIN = 1
   private static readonly LOOKAHEAD_MAX = 3
-
   constructor(url: string, actx: AudioContext) {
     this.url = url
     this.actx = actx
@@ -41,8 +41,11 @@ export class AudioPlayer {
   private playGeneration = 0
   private rangeStart: number = 0
 
-async play(mediaTime: number, audio: AudioState, clipDuration: number, rangeStart: number) {
+async play(mediaTime: number, audio: AudioState, clipDuration: number, rangeStart: number, playbackRate: number = 1) {
+
+  
   if (!this.sink) return
+
   const generation = ++this.playGeneration
   this.stopNodes()
   void this.iterator?.return(undefined)
@@ -50,9 +53,11 @@ async play(mediaTime: number, audio: AudioState, clipDuration: number, rangeStar
   this.mediaStartTime = mediaTime
   this.rangeStart = rangeStart
   this.iterator = this.sink.buffers(mediaTime)
+  this.playbackRate = playbackRate
   this.ctxStartTime = this.actx.currentTime - mediaTime
-  this.scheduleGain(audio, mediaTime, clipDuration)
+  this.scheduleGain(audio, mediaTime, clipDuration / this.playbackRate)
   this.schedule(generation).catch(e => console.error('[AudioPlayer] schedule error:', e))
+
 }
 
 
@@ -122,15 +127,16 @@ async play(mediaTime: number, audio: AudioState, clipDuration: number, rangeStar
       const node = this.actx.createBufferSource()
       node.buffer = buffer
       node.connect(this.gainNode)
-      const when = this.ctxStartTime + timestamp
+      node.playbackRate.value = this.playbackRate
+      const when = this.ctxStartTime + timestamp / this.playbackRate
+      
       const offset = Math.max(0, this.actx.currentTime - when)
       if (offset >= buffer.duration) continue
       node.start(Math.max(when, this.actx.currentTime), offset)
       this.queuedNodes.add(node)
       node.onended = () => this.queuedNodes.delete(node)
 
-      const ahead = timestamp - (this.actx.currentTime - this.ctxStartTime)
-
+      const ahead = timestamp / this.playbackRate - (this.actx.currentTime - this.ctxStartTime)
       // backpressure — слишком далеко впереди, ждём
       if (ahead > AudioPlayer.LOOKAHEAD_MAX) {
         const waitMs = (ahead - AudioPlayer.LOOKAHEAD_MIN) * 1000

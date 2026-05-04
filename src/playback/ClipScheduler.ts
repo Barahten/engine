@@ -12,9 +12,13 @@ export function buildSchedule(state: CompositionState, timeSeconds: number): Cli
   for (const layer of state.layers) {
     for (const clip of layer.clips) {
       const rangeStart = clip.range?.start ?? 0
-      const mediaTime = Math.max(rangeStart, rangeStart + (timeSeconds - clip.offset))
+      const rate = clip.playbackRate ?? 1
+      const mediaTime = Math.max(rangeStart, rangeStart + (timeSeconds - clip.offset) * rate)
+
       result.push({ clip, mediaTime, active: isClipActive(clip, timeSeconds) })
+      //console.log(clip.id, 'active', isClipActive(clip, timeSeconds), 'mediaTime', mediaTime, 'timeSeconds', timeSeconds)
     }
   }
+
   return result
 }

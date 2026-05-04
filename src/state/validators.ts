@@ -63,7 +63,7 @@ export function validateClip(clip: ClipState): ValidationError[] {
   if (clip.range && clip.range.end <= clip.range.start) {
     errors.push({ field: 'clip.range', message: `range.end must be > range.start` })
   }
-  if (!clip.src) {
+  if (!clip.src && clip.type !== 'text') {
     errors.push({ field: 'clip.src', message: 'src is required' })
   }
   errors.push(...validateTransform(clip.transform))
@@ -86,10 +86,14 @@ export function validateCompositionState(state: CompositionState): ValidationErr
 }
 
 export function normalizeClip(clip: ClipInput): ClipState {
+  const duration = clip.duration ?? 0
   return {
     ...clip,
     offset: clip.offset ?? 0,
-    duration: clip.duration ?? 0,
+    duration,
+    range: clip.range ?? { start: 0, end: duration },
+    playbackRate: clip.playbackRate ?? 1,
+    lines: clip.lines,
     transform: {
       x: clip.transform?.x ?? null,
       y: clip.transform?.y ?? null,

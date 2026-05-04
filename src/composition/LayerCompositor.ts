@@ -1,12 +1,14 @@
 export class LayerCompositor {
-  private offscreens = new Map<string, OffscreenCanvas>()
+  private offscreens = new Map<string, HTMLCanvasElement>()  // ← заменить тип
 
-  getOrCreate(layerId: string, width: number, height: number): OffscreenCanvas {
+  getOrCreate(layerId: string, width: number, height: number): HTMLCanvasElement {  // ← заменить тип
     const existing = this.offscreens.get(layerId)
     if (existing && existing.width === width && existing.height === height) {
       return existing
     }
-    const canvas = new OffscreenCanvas(width, height)
+    const canvas = document.createElement('canvas')  // ← заменить
+    canvas.width = width
+    canvas.height = height
     this.offscreens.set(layerId, canvas)
     return canvas
   }
